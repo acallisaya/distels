@@ -17,6 +17,8 @@ using AutoMapper;
 using distels.Services;
 using distels.Repositories;
 using distels.Profiles;
+using Npgsql;
+using System.Collections;
 
 namespace distels
 {
@@ -55,7 +57,7 @@ namespace distels
             if (isRender)
             {
                 // ✅ CONFIGURACIÓN PARA RENDER
-                var port = Environment.GetEnvironmentVariable("PORT") ?? "10000";
+                var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
                 Console.WriteLine($"🔊  Render - Puerto asignado: {port}");
 
                 builder.WebHost.ConfigureKestrel(options =>
@@ -141,57 +143,116 @@ namespace distels
             });
 
             // ============================================
-            // ✅ CONFIGURACIÓN DE BASE DE DATOS (VERSIÓN SIMPLIFICADA)
+            // ✅ CONFIGURACIÓN DE BASE DE DATOS - VERSIÓN DEFINITIVA
             // ============================================
 
             builder.Services.AddDbContext<ApplicationDbContext>((serviceProvider, options) =>
             {
-                var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+                string connectionString;
 
-                Console.WriteLine($"🔗  Configurando conexión a PostgreSQL...");
+                Console.WriteLine("🔍  Buscando configuración de base de datos...");
 
-                if (isProduction)
+                // OPCIÓN 1: DATABASE_URL directo (Render preferido)
+                var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+                if (!string.IsNullOrEmpty(databaseUrl))
                 {
-                    // ✅ Para producción con SSL
-                    if (!connectionString.Contains("SSL Mode", StringComparison.OrdinalIgnoreCase) &&
-                        !connectionString.Contains("SslMode", StringComparison.OrdinalIgnoreCase))
+                    Console.WriteLine("✅  Encontrado: DATABASE_URL");
+                    Console.WriteLine($"📦  Longitud: {databaseUrl.Length} caracteres");
+
+                    try
                     {
-                        connectionString += ";SslMode=Require;Trust Server Certificate=true";
-                        Console.WriteLine("🔐  SSL añadido al connection string");
+                        // Parsear la URL
+                        var uri = new Uri(databaseUrl);
+                        var userInfo = uri.UserInfo.Split(':');
+
+                        connectionString = new NpgsqlConnectionStringBuilder
+                        {
+                            Host = uri.Host,
+                            Port = uri.Port,
+                            Username = userInfo[0],
+                            Password = userInfo[1],
+                            Database = uri.LocalPath.TrimStart('/'),
+                            SslMode = SslMode.Require,
+                            TrustServerCertificate = true,
+                            Pooling = true,
+                            MaxPoolSize = 20,
+                            Timeout = 30,
+                            CommandTimeout = 30
+                        }.ToString();
+
+                        Console.WriteLine($"🏷️  Database: {uri.LocalPath.TrimStart('/')}");
+                        Console.WriteLine($"🌐  Host: {uri.Host}:{uri.Port}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"❌  Error parseando DATABASE_URL: {ex.Message}");
+                        throw;
+                    }
+                }
+                // OPCIÓN 2: Variables individuales (alternativa)
+                else if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DB_HOST")))
+                {
+                    Console.WriteLine("✅  Encontrado: Variables DB_* individuales");
+
+                    connectionString = new NpgsqlConnectionStringBuilder
+                    {
+                        Host = Environment.GetEnvironmentVariable("DB_HOST"),
+                        Port = int.Parse(Environment.GetEnvironmentVariable("DB_PORT") ?? "5432"),
+                        Username = Environment.GetEnvironmentVariable("DB_USER"),
+                        Password = Environment.GetEnvironmentVariable("DB_PASSWORD"),
+                        Database = Environment.GetEnvironmentVariable("DB_NAME"),
+                        SslMode = SslMode.Require,
+                        TrustServerCertificate = true,
+                        Pooling = true,
+                        MaxPoolSize = 20
+                    }.ToString();
+                }
+                // OPCIÓN 3: Connection string de appsettings (desarrollo)
+                else
+                {
+                    connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+                    Console.WriteLine($"🔗  Usando connection string de configuración");
+
+                    // Expandir variables si es necesario
+                    if (connectionString != null && connectionString.Contains("${"))
+                    {
+                        Console.WriteLine("⚠️  Advertencia: Connection string tiene variables no expandidas");
+                        Console.WriteLine($"🔍  Original: {connectionString}");
                     }
                 }
 
-                // ✅ SOLUCIÓN DEFINITIVA para EnableRetryOnFailure
+                // Verificar que tenemos connection string
+                if (string.IsNullOrEmpty(connectionString))
+                {
+                    var errorMsg = "❌  CRÍTICO: No hay connection string disponible. Verifica variables de entorno.";
+                    Console.WriteLine(errorMsg);
+                    Console.WriteLine("📋  Variables disponibles:");
+                    foreach (DictionaryEntry env in Environment.GetEnvironmentVariables())
+                    {
+                        if (env.Key.ToString().StartsWith("DB_") || env.Key.ToString().Contains("DATABASE"))
+                        {
+                            Console.WriteLine($"   {env.Key}: {env.Value}");
+                        }
+                    }
+                    throw new InvalidOperationException(errorMsg);
+                }
+
+                Console.WriteLine($"✅  Connection string configurado ({connectionString.Length} chars)");
+                Console.WriteLine($"🔐  SSL: Require");
+
+                // Aplicar configuración
                 options.UseNpgsql(connectionString, npgsqlOptions =>
                 {
-                    // OPCIÓN 1: Usar la sobrecarga con 3 parámetros
-                    npgsqlOptions.EnableRetryOnFailure(
-                        maxRetryCount: 5,
-                        maxRetryDelay: TimeSpan.FromSeconds(10),
-                        errorCodesToAdd: null  // <-- ¡ESTO ES LO QUE FALTA!
-                    );
-
-                    // OPCIÓN 2: O usar lista vacía
-                    // npgsqlOptions.EnableRetryOnFailure(
-                    //     maxRetryCount: 5,
-                    //     maxRetryDelay: TimeSpan.FromSeconds(10),
-                    //     errorCodesToAdd: new List<string>()  // Lista vacía
-                    // );
-
-                    // OPCIÓN 3: O simplemente no usar EnableRetryOnFailure
-                    // (comenta las líneas anteriores si prefieres esto)
-
-                    // Configurar timeout
                     npgsqlOptions.CommandTimeout(30);
+                    npgsqlOptions.MigrationsAssembly("distels");
                 });
 
-                // Logging detallado solo en desarrollo
                 if (isDevelopment)
                 {
                     options.EnableSensitiveDataLogging();
                     options.EnableDetailedErrors();
-                    Console.WriteLine("🔍  Sensitive Data Logging: ACTIVADO");
                 }
+
             }, ServiceLifetime.Transient);
 
             // ============================================
