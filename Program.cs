@@ -51,32 +51,38 @@ namespace distels
             Console.WriteLine("========================================");
 
             // ============================================
-            // ✅ CONFIGURAR SERVIDOR WEB
+            // ✅ CONFIGURAR SERVIDOR WEB (VERSIÓN CORREGIDA)
             // ============================================
 
-            if (isRender)
-            {
-                // ✅ CONFIGURACIÓN PARA RENDER
-                var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
-                Console.WriteLine($"🔊  Render - Puerto asignado: {port}");
+            // SIEMPRE usar la variable PORT en Render
+            var port = Environment.GetEnvironmentVariable("PORT");
+            var isRenderEnv = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("RENDER"));
 
-                builder.WebHost.ConfigureKestrel(options =>
+            if (isRenderEnv && !string.IsNullOrEmpty(port))
+            {
+                // ✅ CORRECCIÓN: Render asigna puerto dinámico
+                Console.WriteLine($"🎯  RENDER DETECTADO - Usando puerto: {port}");
+
+                // Configurar Kestrel para el puerto de Render
+                builder.WebHost.ConfigureKestrel(serverOptions =>
                 {
-                    options.Listen(System.Net.IPAddress.Any, int.Parse(port));
+                    serverOptions.Listen(IPAddress.Any, int.Parse(port));
                 });
 
-                // Para Render, usar solo HTTP
+                // También configurar URLs
                 builder.WebHost.UseUrls($"http://*:{port}");
             }
             else if (isDevelopment)
             {
-                // ✅ CONFIGURACIÓN PARA DESARROLLO LOCAL
-                builder.WebHost.ConfigureKestrel(options =>
-                {
-                    options.ListenAnyIP(5127); // HTTP
-                });
-
+                // ✅ Desarrollo local
                 Console.WriteLine("🖥️  Desarrollo local - Puerto: 5127 (HTTP)");
+                builder.WebHost.UseUrls("http://localhost:5127");
+            }
+            else
+            {
+                // ✅ Producción (no Render)
+                Console.WriteLine("🌐  Producción - Puerto por defecto: 8080");
+                builder.WebHost.UseUrls("http://*:8080");
             }
 
             // ============================================
@@ -143,61 +149,78 @@ namespace distels
             });
 
             // ============================================
-            // ✅ CONFIGURACIÓN DE BASE DE DATOS - VERSIÓN DEFINITIVA
+            // ✅ CONFIGURACIÓN DE BASE DE DATOS CORREGIDA
             // ============================================
 
             builder.Services.AddDbContext<ApplicationDbContext>((serviceProvider, options) =>
             {
                 string connectionString;
 
-                Console.WriteLine("🔍  Buscando configuración de base de datos...");
-
-                // OPCIÓN 1: DATABASE_URL directo (Render preferido)
+                // OPCIÓN 1: Usar DATABASE_URL de Render
                 var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
-                if (!string.IsNullOrEmpty(databaseUrl))
+
+                if (!string.IsNullOrEmpty(databaseUrl) && (isProduction || isRender))
                 {
-                    Console.WriteLine("✅  Encontrado: DATABASE_URL");
-                    Console.WriteLine($"📦  Longitud: {databaseUrl.Length} caracteres");
+                    Console.WriteLine("🎯  Usando DATABASE_URL de Render");
+                    Console.WriteLine($"🔗  URL recibida: {databaseUrl}");
 
                     try
                     {
-                        // Parsear la URL
-                        var uri = new Uri(databaseUrl);
-                        var userInfo = uri.UserInfo.Split(':');
-
-                        connectionString = new NpgsqlConnectionStringBuilder
+                        // Parsear manualmente para evitar problemas con Uri
+                        if (databaseUrl.StartsWith("postgresql://") || databaseUrl.StartsWith("postgres://"))
                         {
-                            Host = uri.Host,
-                            Port = uri.Port,
-                            Username = userInfo[0],
-                            Password = userInfo[1],
-                            Database = uri.LocalPath.TrimStart('/'),
-                            SslMode = SslMode.Require,
-                            TrustServerCertificate = true,
-                            Pooling = true,
-                            MaxPoolSize = 20,
-                            Timeout = 30,
-                            CommandTimeout = 30
-                        }.ToString();
+                            // Quitar el prefijo
+                            var uriString = databaseUrl.Replace("postgresql://", "postgres://");
+                            var uri = new Uri(uriString);
 
-                        Console.WriteLine($"🏷️  Database: {uri.LocalPath.TrimStart('/')}");
-                        Console.WriteLine($"🌐  Host: {uri.Host}:{uri.Port}");
+                            var userInfo = uri.UserInfo.Split(':');
+                            var host = uri.Host;
+
+                            // Si el puerto es -1, usar 5432 por defecto
+                            var port = uri.Port != -1 ? uri.Port : 5432;
+
+                            connectionString = new NpgsqlConnectionStringBuilder
+                            {
+                                Host = host,
+                                Port = port,
+                                Username = userInfo[0],
+                                Password = userInfo[1],
+                                Database = uri.AbsolutePath.TrimStart('/'),
+                                SslMode = SslMode.Require,
+                                TrustServerCertificate = true,
+                                Pooling = true,
+                                MaxPoolSize = 20,
+                                Timeout = 30
+                            }.ToString();
+
+                            Console.WriteLine($"✅  Connection string generado");
+                            Console.WriteLine($"📍  Host: {host}");
+                            Console.WriteLine($"🚪  Port: {port}");
+                            Console.WriteLine($"🗄️  Database: {uri.AbsolutePath.TrimStart('/')}");
+                        }
+                        else
+                        {
+                            throw new FormatException("DATABASE_URL no tiene formato válido");
+                        }
                     }
                     catch (Exception ex)
                     {
                         Console.WriteLine($"❌  Error parseando DATABASE_URL: {ex.Message}");
-                        throw;
+                        Console.WriteLine($"🔍  URL: {databaseUrl}");
+
+                        // Usar string de conexión por defecto
+                        connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
                     }
                 }
-                // OPCIÓN 2: Variables individuales (alternativa)
+                // OPCIÓN 2: Usar variables individuales
                 else if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DB_HOST")))
                 {
-                    Console.WriteLine("✅  Encontrado: Variables DB_* individuales");
+                    Console.WriteLine("🔗  Usando variables DB_* individuales");
 
                     connectionString = new NpgsqlConnectionStringBuilder
                     {
                         Host = Environment.GetEnvironmentVariable("DB_HOST"),
-                        Port = int.Parse(Environment.GetEnvironmentVariable("DB_PORT") ?? "5432"),
+                        Port = int.TryParse(Environment.GetEnvironmentVariable("DB_PORT"), out int port) ? port : 5432,
                         Username = Environment.GetEnvironmentVariable("DB_USER"),
                         Password = Environment.GetEnvironmentVariable("DB_PASSWORD"),
                         Database = Environment.GetEnvironmentVariable("DB_NAME"),
@@ -207,38 +230,20 @@ namespace distels
                         MaxPoolSize = 20
                     }.ToString();
                 }
-                // OPCIÓN 3: Connection string de appsettings (desarrollo)
+                // OPCIÓN 3: Connection string de appsettings
                 else
                 {
                     connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
                     Console.WriteLine($"🔗  Usando connection string de configuración");
-
-                    // Expandir variables si es necesario
-                    if (connectionString != null && connectionString.Contains("${"))
-                    {
-                        Console.WriteLine("⚠️  Advertencia: Connection string tiene variables no expandidas");
-                        Console.WriteLine($"🔍  Original: {connectionString}");
-                    }
                 }
 
-                // Verificar que tenemos connection string
+                // Validar connection string
                 if (string.IsNullOrEmpty(connectionString))
                 {
-                    var errorMsg = "❌  CRÍTICO: No hay connection string disponible. Verifica variables de entorno.";
-                    Console.WriteLine(errorMsg);
-                    Console.WriteLine("📋  Variables disponibles:");
-                    foreach (DictionaryEntry env in Environment.GetEnvironmentVariables())
-                    {
-                        if (env.Key.ToString().StartsWith("DB_") || env.Key.ToString().Contains("DATABASE"))
-                        {
-                            Console.WriteLine($"   {env.Key}: {env.Value}");
-                        }
-                    }
-                    throw new InvalidOperationException(errorMsg);
+                    throw new InvalidOperationException("No se pudo generar connection string");
                 }
 
-                Console.WriteLine($"✅  Connection string configurado ({connectionString.Length} chars)");
-                Console.WriteLine($"🔐  SSL: Require");
+                Console.WriteLine($"✅  Connection string configurado (longitud: {connectionString.Length})");
 
                 // Aplicar configuración
                 options.UseNpgsql(connectionString, npgsqlOptions =>
@@ -254,7 +259,6 @@ namespace distels
                 }
 
             }, ServiceLifetime.Transient);
-
             // ============================================
             // ✅ CONFIGURACIÓN DE AUTENTICACIÓN (SIMPLIFICADA)
             // ============================================
