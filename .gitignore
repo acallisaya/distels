@@ -1,0 +1,18 @@
+﻿# 🚨 NO SUBIR NUNCA ESTO 🚨
+output/
+bin/
+obj/
+publish/
+*.exe
+*.dll
+*.pdb
+*.cache
+
+# Configuraciones locales
+appsettings.Development.json
+.vs/
+.vscode/
+
+# Logs
+*.log
+*.tmp

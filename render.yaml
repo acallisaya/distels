@@ -1,0 +1,41 @@
+﻿services:
+  - type: web
+    name: distels-api
+    env: dotnet
+    region: ohio  # o virginia, oregon
+    buildCommand: |
+      dotnet restore
+      dotnet publish -c Release -o ./publish
+    startCommand: cd ./publish && ./distels
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_URLS
+        value: http://*:${PORT}
+      - key: ConnectionStrings__DefaultConnection
+        fromDatabase:
+          name: distels-db
+          property: connectionString
+      - key: Frontend__BaseUrl
+        value: https://distels-frontend.onrender.com
+      - key: JWT__Key
+        generateValue: true
+      - key: EmailConfig__SmtpServer
+        value: smtp.gmail.com
+      - key: EmailConfig__SmtpPort
+        value: 587
+      - key: EmailConfig__Username
+        value: tu-email@gmail.com
+      - key: EmailConfig__Password
+        value: tu-password-app
+      - key: EmailConfig__FromEmail
+        value: tu-email@gmail.com
+      - key: EmailConfig__FromName
+        value: Sistema Distels
+      - key: EmailConfig__EnableSsl
+        value: true
+
+databases:
+  - name: distels-db
+    databaseName: distels
+    plan: free

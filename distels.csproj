@@ -1,0 +1,62 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+
+		<!-- ✅ DEBUG CONFIGURATION -->
+		<Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+		<OutputType>Exe</OutputType>
+
+		<!-- ❌ COMENTAR/REMOVER líneas de publicación -->
+		<!-- <PublishSingleFile>true</PublishSingleFile> -->
+		<!-- <RuntimeIdentifier>linux-x64</RuntimeIdentifier> -->
+
+		<!-- ✅ CONFIGURACIONES PARA DESARROLLO -->
+		<GenerateDocumentationFile>false</GenerateDocumentationFile>
+		<NoWarn>1591</NoWarn>
+		<DebugType>portable</DebugType>
+		<DebugSymbols>true</DebugSymbols>
+		<Optimize>false</Optimize>
+
+		<!-- ✅ HOT RELOAD -->
+		<HotReloadEnabled>true</HotReloadEnabled>
+		<HotReloadEnabledInAllEnvironments>true</HotReloadEnabledInAllEnvironments>
+
+		<!-- ✅ PARA EVITAR PROBLEMAS CON EF -->
+		<PreserveCompilationContext>true</PreserveCompilationContext>
+
+	</PropertyGroup>
+
+	<ItemGroup>
+	  <Compile Remove="Program1.cs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- ✅ PAQUETES ESENCIALES -->
+		<PackageReference Include="itext7" Version="9.5.0" />
+		<PackageReference Include="itext7.bouncy-castle-adapter" Version="9.5.0" />
+		<PackageReference Include="iTextSharp" Version="5.5.13.4" />
+		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.23" />
+		<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0" />
+		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
+		<PackageReference Include="QRCoder" Version="1.7.0" />
+		<PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
+
+		<!-- ✅ EF CORE CON POSTGRES -->
+
+		<!-- ✅ AUTOMAPPER -->
+		<PackageReference Include="AutoMapper.Extensions.Microsoft.DependencyInjection" Version="12.0.1" />
+
+		<!-- ✅ LOGGING -->
+		<PackageReference Include="Serilog.AspNetCore" Version="8.0.0" />
+		<PackageReference Include="Serilog.Sinks.Console" Version="5.0.1" />
+		<PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.15.0" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <Folder Include="Data\" />
+	</ItemGroup>
+
+</Project>

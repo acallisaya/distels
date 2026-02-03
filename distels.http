@@ -1,0 +1,6 @@
+@distels_HostAddress = http://localhost:5137
+
+GET {{distels_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
