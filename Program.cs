@@ -149,103 +149,17 @@ namespace distels
             });
 
             // ============================================
-            // ✅ CONFIGURACIÓN DE BASE DE DATOS CORREGIDA
+            // ✅ CONFIGURACIÓN DE BASE DE DATOS - VERSIÓN DEFINITIVA
             // ============================================
 
             builder.Services.AddDbContext<ApplicationDbContext>((serviceProvider, options) =>
             {
-                string connectionString;
+                Console.WriteLine("🔧  Configurando conexión a PostgreSQL...");
 
-                // OPCIÓN 1: Usar DATABASE_URL de Render
-                var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+                string connectionString = GetConnectionString();
 
-                if (!string.IsNullOrEmpty(databaseUrl) && (isProduction || isRender))
-                {
-                    Console.WriteLine("🎯  Usando DATABASE_URL de Render");
-                    Console.WriteLine($"🔗  URL recibida: {databaseUrl}");
+                Console.WriteLine($"✅  Connection string listo");
 
-                    try
-                    {
-                        // Parsear manualmente para evitar problemas con Uri
-                        if (databaseUrl.StartsWith("postgresql://") || databaseUrl.StartsWith("postgres://"))
-                        {
-                            // Quitar el prefijo
-                            var uriString = databaseUrl.Replace("postgresql://", "postgres://");
-                            var uri = new Uri(uriString);
-
-                            var userInfo = uri.UserInfo.Split(':');
-                            var host = uri.Host;
-
-                            // Si el puerto es -1, usar 5432 por defecto
-                            var port = uri.Port != -1 ? uri.Port : 5432;
-
-                            connectionString = new NpgsqlConnectionStringBuilder
-                            {
-                                Host = host,
-                                Port = port,
-                                Username = userInfo[0],
-                                Password = userInfo[1],
-                                Database = uri.AbsolutePath.TrimStart('/'),
-                                SslMode = SslMode.Require,
-                                TrustServerCertificate = true,
-                                Pooling = true,
-                                MaxPoolSize = 20,
-                                Timeout = 30
-                            }.ToString();
-
-                            Console.WriteLine($"✅  Connection string generado");
-                            Console.WriteLine($"📍  Host: {host}");
-                            Console.WriteLine($"🚪  Port: {port}");
-                            Console.WriteLine($"🗄️  Database: {uri.AbsolutePath.TrimStart('/')}");
-                        }
-                        else
-                        {
-                            throw new FormatException("DATABASE_URL no tiene formato válido");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"❌  Error parseando DATABASE_URL: {ex.Message}");
-                        Console.WriteLine($"🔍  URL: {databaseUrl}");
-
-                        // Usar string de conexión por defecto
-                        connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-                    }
-                }
-                // OPCIÓN 2: Usar variables individuales
-                else if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DB_HOST")))
-                {
-                    Console.WriteLine("🔗  Usando variables DB_* individuales");
-
-                    connectionString = new NpgsqlConnectionStringBuilder
-                    {
-                        Host = Environment.GetEnvironmentVariable("DB_HOST"),
-                        Port = int.TryParse(Environment.GetEnvironmentVariable("DB_PORT"), out int port) ? port : 5432,
-                        Username = Environment.GetEnvironmentVariable("DB_USER"),
-                        Password = Environment.GetEnvironmentVariable("DB_PASSWORD"),
-                        Database = Environment.GetEnvironmentVariable("DB_NAME"),
-                        SslMode = SslMode.Require,
-                        TrustServerCertificate = true,
-                        Pooling = true,
-                        MaxPoolSize = 20
-                    }.ToString();
-                }
-                // OPCIÓN 3: Connection string de appsettings
-                else
-                {
-                    connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-                    Console.WriteLine($"🔗  Usando connection string de configuración");
-                }
-
-                // Validar connection string
-                if (string.IsNullOrEmpty(connectionString))
-                {
-                    throw new InvalidOperationException("No se pudo generar connection string");
-                }
-
-                Console.WriteLine($"✅  Connection string configurado (longitud: {connectionString.Length})");
-
-                // Aplicar configuración
                 options.UseNpgsql(connectionString, npgsqlOptions =>
                 {
                     npgsqlOptions.CommandTimeout(30);
@@ -259,6 +173,153 @@ namespace distels
                 }
 
             }, ServiceLifetime.Transient);
+
+            // Función auxiliar para obtener connection string SIN usar Uri.Parse
+            string GetConnectionString()
+            {
+                // 1. Primero intentar DATABASE_URL
+                var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+
+                if (!string.IsNullOrEmpty(databaseUrl))
+                {
+                    Console.WriteLine("🔍  Parseando DATABASE_URL manualmente...");
+
+                    try
+                    {
+                        return ParseDatabaseUrlManually(databaseUrl);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"❌  Error parseando DATABASE_URL: {ex.Message}");
+                        Console.WriteLine("🔄  Intentando con variables individuales...");
+                    }
+                }
+
+                // 2. Si no hay DATABASE_URL o falló, usar variables individuales
+                return GetConnectionStringFromEnvVars();
+            }
+
+            string ParseDatabaseUrlManually(string url)
+            {
+                // Parsear MANUALMENTE sin usar Uri class
+                Console.WriteLine($"📦  URL original: {url}");
+
+                // Normalizar a postgres://
+                if (url.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
+                {
+                    url = "postgres://" + url.Substring("postgresql://".Length);
+                }
+                else if (!url.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new FormatException("URL debe empezar con postgres:// o postgresql://");
+                }
+
+                // Remover postgres://
+                url = url.Substring("postgres://".Length);
+
+                // Separar usuario:contraseña@host:puerto/basedatos
+                var atIndex = url.IndexOf('@');
+                if (atIndex == -1) throw new FormatException("No hay @ en la URL");
+
+                var credentials = url.Substring(0, atIndex);
+                var rest = url.Substring(atIndex + 1);
+
+                // Parsear credenciales
+                var colonIndex = credentials.IndexOf(':');
+                if (colonIndex == -1) throw new FormatException("No hay : en las credenciales");
+
+                var username = credentials.Substring(0, colonIndex);
+                var password = credentials.Substring(colonIndex + 1);
+
+                // Parsear host:puerto/basedatos
+                var slashIndex = rest.IndexOf('/');
+                if (slashIndex == -1) throw new FormatException("No hay / después del host");
+
+                var hostPort = rest.Substring(0, slashIndex);
+                var database = rest.Substring(slashIndex + 1);
+
+                // Parsear host y puerto
+                var host = hostPort;
+                var port = 5432; // Puerto por defecto PostgreSQL
+
+                var colonPortIndex = hostPort.IndexOf(':');
+                if (colonPortIndex != -1)
+                {
+                    host = hostPort.Substring(0, colonPortIndex);
+                    var portStr = hostPort.Substring(colonPortIndex + 1);
+
+                    if (int.TryParse(portStr, out var parsedPort))
+                    {
+                        port = parsedPort;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"⚠️  Puerto '{portStr}' inválido, usando 5432");
+                    }
+                }
+
+                Console.WriteLine($"✅  Parseado exitoso:");
+                Console.WriteLine($"   👤 Usuario: {username}");
+                Console.WriteLine($"   🌐 Host: {host}");
+                Console.WriteLine($"   🚪 Puerto: {port}");
+                Console.WriteLine($"   🗄️  Base de datos: {database}");
+
+                return new NpgsqlConnectionStringBuilder
+                {
+                    Host = host,
+                    Port = port,
+                    Username = username,
+                    Password = password,
+                    Database = database,
+                    SslMode = SslMode.Require,
+                    TrustServerCertificate = true,
+                    Pooling = true,
+                    MaxPoolSize = 20,
+                    Timeout = 30
+                }.ToString();
+            }
+
+            string GetConnectionStringFromEnvVars()
+            {
+                Console.WriteLine("🔍  Usando variables de entorno individuales...");
+
+                var host = Environment.GetEnvironmentVariable("DB_HOST");
+                var database = Environment.GetEnvironmentVariable("DB_NAME") ?? "distels";
+                var username = Environment.GetEnvironmentVariable("DB_USER") ?? "postgres";
+                var password = Environment.GetEnvironmentVariable("DB_PASSWORD");
+
+                if (string.IsNullOrEmpty(host))
+                {
+                    Console.WriteLine("⚠️  No hay variables DB_*, usando configuración local");
+                    return "Host=localhost;Database=distels;Username=postgres;Password=postgres;";
+                }
+
+                var portStr = Environment.GetEnvironmentVariable("DB_PORT");
+                var port = 5432;
+                if (!string.IsNullOrEmpty(portStr) && int.TryParse(portStr, out var parsedPort))
+                {
+                    port = parsedPort;
+                }
+
+                Console.WriteLine($"✅  Variables encontradas:");
+                Console.WriteLine($"   🌐 Host: {host}");
+                Console.WriteLine($"   🚪 Puerto: {port}");
+                Console.WriteLine($"   🗄️  Database: {database}");
+                Console.WriteLine($"   👤 Usuario: {username}");
+
+                return new NpgsqlConnectionStringBuilder
+                {
+                    Host = host,
+                    Port = port,
+                    Username = username,
+                    Password = password,
+                    Database = database,
+                    SslMode = SslMode.Require,
+                    TrustServerCertificate = true,
+                    Pooling = true,
+                    MaxPoolSize = 20
+                }.ToString();
+            }
             // ============================================
             // ✅ CONFIGURACIÓN DE AUTENTICACIÓN (SIMPLIFICADA)
             // ============================================
