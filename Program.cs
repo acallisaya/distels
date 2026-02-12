@@ -128,7 +128,8 @@ namespace distels
                 {
                     policy.WithOrigins(
                             "http://localhost:5173",
-                            "http://localhost:3000")
+                            "http://localhost:3000",
+                            "https://distels-frontend.onrender.com")
                           .AllowAnyHeader()
                           .AllowAnyMethod()
                           .AllowCredentials();
