@@ -120,32 +120,18 @@ namespace distels
             // ============================================
             // ✅ CONFIGURACIÓN DE CORS
             // ============================================
-
             builder.Services.AddCors(options =>
             {
-                // Política para desarrollo
-                options.AddPolicy("DevelopmentPolicy", policy =>
+                // 🟢 POLÍTICA ÚNICA - FUNCIONA EN TODOS LADOS
+                options.AddPolicy("PermitirFrontend", policy =>
                 {
-                    policy.WithOrigins(
-                            "http://localhost:5173",
-                            "http://localhost:3000",
-                            "https://distels-frontend.onrender.com")
-                          .AllowAnyHeader()
+                    policy.SetIsOriginAllowed(origin =>
+                        origin == "http://localhost:5173" ||
+                        origin == "http://localhost:3000" ||
+                        origin == "https://distels-frontend.onrender.com" ||
+                        origin.StartsWith("http://localhost:"))  // Permite cualquier puerto local
                           .AllowAnyMethod()
-                          .AllowCredentials();
-                });
-
-                // Política para producción
-                options.AddPolicy("ProductionPolicy", policy =>
-                {
-                    var frontendUrl = builder.Configuration["Frontend:BaseUrl"] ??
-                                     "https://distels-frontend.onrender.com";
-
-                    Console.WriteLine($"🌐  Frontend URL configurada: {frontendUrl}");
-
-                    policy.WithOrigins(frontendUrl)
                           .AllowAnyHeader()
-                          .AllowAnyMethod()
                           .AllowCredentials();
                 });
             });
@@ -410,7 +396,7 @@ namespace distels
                 FileProvider = new PhysicalFileProvider(uploadsPath),
                 RequestPath = "/uploads"
             });
-
+            app.UseCors("PermitirTodo");
             app.UseRouting();
             app.UseAuthentication();
             app.UseAuthorization();
