@@ -19,6 +19,7 @@ using distels.Repositories;
 using distels.Profiles;
 using Npgsql;
 using System.Collections;
+using distels.Models;
 
 namespace distels
 {
@@ -508,6 +509,9 @@ namespace distels
             // ============================================
             // 🚀 CREAR TABLAS AUTOMÁTICAMENTE - PEGA ESTO AHORA
             // ============================================
+            // ============================================
+            // 🔥 SOLUCIÓN DEFINITIVA - CREACIÓN FORZADA DE TABLAS
+            // ============================================
             using (var scope = app.Services.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -515,19 +519,84 @@ namespace distels
 
                 try
                 {
-                    logger.LogInformation("🔄 Creando base de datos y tablas...");
+                    logger.LogWarning("🚀 VERIFICANDO BASE DE DATOS EN RENDER...");
 
-                    // ✅ ESTA LÍNEA CREA TODAS LAS TABLAS
-                    await db.Database.EnsureCreatedAsync();
+                    // 1. PRIMERO: Verificar conexión
+                    var canConnect = db.Database.CanConnect();
+                    logger.LogInformation($"📡 Conexión a DB: {(canConnect ? "EXITOSA" : "FALLIDA")}");
 
-                    logger.LogInformation("✅ TABLAS CREADAS EXITOSAMENTE");
+                    if (canConnect)
+                    {
+                        // 2. SEGUNDO: ELIMINAR Y RECREAR TODO (FUERZA BRUTA)
+                        logger.LogWarning("🔥 ELIMINANDO base de datos existente...");
+                        db.Database.EnsureDeleted();
+
+                        logger.LogWarning("🔥 CREANDO base de datos y tablas desde CERO...");
+                        db.Database.EnsureCreated();
+
+                        // 3. VERIFICAR QUE LAS TABLAS EXISTEN
+                        try
+                        {
+                            var testQuery = db.Tarjetas.Any();
+                            logger.LogInformation("✅ VERIFICACIÓN: Tabla tarjetas responde correctamente");
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.LogError($"❌ VERIFICACIÓN FALLÓ: {ex.Message}");
+                            throw;
+                        }
+
+                        // 4. DATOS SEMILLA
+                        SeedInitialData(db, logger);
+
+                        logger.LogInformation("🎉 ¡BASE DE DATOS LISTA!");
+                    }
                 }
                 catch (Exception ex)
                 {
-                    logger.LogError(ex, "❌ Error al crear tablas");
+                    logger.LogError(ex, "❌ ERROR FATAL EN BASE DE DATOS: {Message}", ex.Message);
                 }
             }
+
             app.Run();
+        }
+        static void SeedInitialData(ApplicationDbContext db, ILogger logger)
+        {
+            try
+            {
+                // Servicios
+                if (!db.Servicios.Any())
+                {
+                    logger.LogInformation("📦 Creando servicios iniciales...");
+                    db.Servicios.AddRange(
+                        new Servicio { Nombre = "Netflix", Codigo = "NFLX", MaxPerfiles = 4, Estado = "ACTIVO" },
+                        new Servicio { Nombre = "Disney+", Codigo = "DNYP", MaxPerfiles = 4, Estado = "ACTIVO" },
+                        new Servicio { Nombre = "HBO Max", Codigo = "HBO", MaxPerfiles = 3, Estado = "ACTIVO" }
+                    );
+                    db.SaveChanges();
+                    logger.LogInformation("✅ Servicios creados");
+                }
+
+                // Planes
+                if (!db.Planes.Any())
+                {
+                    logger.LogInformation("📦 Creando planes iniciales...");
+                    var netflix = db.Servicios.First(s => s.Codigo == "NFLX");
+                    var disney = db.Servicios.First(s => s.Codigo == "DNYP");
+
+                    db.Planes.AddRange(
+                        new Plan { IdServicio = netflix.IdServicio, Nombre = "Netflix 30 días", DuracionDias = 30, PrecioVenta = 15.99m, PrecioCompra = 10.99m, Estado = "ACTIVO" },
+                        new Plan { IdServicio = netflix.IdServicio, Nombre = "Netflix 90 días", DuracionDias = 90, PrecioVenta = 45.99m, PrecioCompra = 30.99m, Estado = "ACTIVO" },
+                        new Plan { IdServicio = disney.IdServicio, Nombre = "Disney+ 30 días", DuracionDias = 30, PrecioVenta = 12.99m, PrecioCompra = 8.99m, Estado = "ACTIVO" }
+                    );
+                    db.SaveChanges();
+                    logger.LogInformation("✅ Planes creados");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "⚠️ Error creando datos semilla: {Message}", ex.Message);
+            }
         }
     }
 }
