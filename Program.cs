@@ -327,57 +327,31 @@ namespace distels
             Console.WriteLine("========================================");
 
             // ============================================
-            // ✅ CONFIGURAR MIDDLEWARE - ORDEN CORREGIDO (CRÍTICO PARA CORS)
+            // ✅ CONFIGURAR MIDDLEWARE - CORREGIDO
             // ============================================
 
-            // 1️⃣ MANEJO DE ERRORES (siempre primero)
             if (isDevelopment)
             {
                 Console.WriteLine("🛠️  Configurando para DESARROLLO...");
                 app.UseDeveloperExceptionPage();
+                app.UseCors("PermitirFrontend");
             }
             else
             {
                 Console.WriteLine("🚀  Configurando para PRODUCCIÓN...");
                 app.UseExceptionHandler("/error");
+                app.UseCors("PermitirFrontend");
             }
 
-            // 2️⃣ REDIRECCIÓN HTTPS (solo si no es Render)
+            // Middleware comunes
             if (!isDevelopment && !isRender)
             {
                 app.UseHttpsRedirection();
             }
 
-            // 3️⃣ ARCHIVOS ESTÁTICOS (siempre)
             app.UseStaticFiles();
 
-            // 4️⃣ 🔓 CORS - ¡UBICACIÓN CRÍTICA! DEBE IR ANTES DE UseRouting()
-            Console.WriteLine("🔓  Configurando CORS con política PermitirFrontend...");
-            app.UseCors("PermitirFrontend");
-
-            // 🔥🔥🔥 SOLUCIÓN DEFINITIVA PARA PREFLIGHT OPTIONS (AGREGADO)
-            app.Use((context, next) =>
-            {
-                if (context.Request.Method == "OPTIONS")
-                {
-                    context.Response.StatusCode = 200;
-                    context.Response.Headers.Append("Access-Control-Allow-Origin", "https://distelsfrontend.onrender.com");
-                    context.Response.Headers.Append("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-                    context.Response.Headers.Append("Access-Control-Allow-Headers", "Content-Type, Authorization");
-                    context.Response.Headers.Append("Access-Control-Allow-Credentials", "true");
-                    return context.Response.CompleteAsync();
-                }
-                return next();
-            });
-
-            // 5️⃣ ROUTING (a partir de aquí va el pipeline de endpoints)
-            app.UseRouting();
-
-            // 6️⃣ AUTENTICACIÓN Y AUTORIZACIÓN
-            app.UseAuthentication();
-            app.UseAuthorization();
-
-            // 7️⃣ SERVIR ARCHIVOS DE UPLOADS (middleware adicional)
+            // Servir archivos uploads
             var uploadsPath = Path.Combine(app.Environment.ContentRootPath, "wwwroot", "uploads");
             if (!Directory.Exists(uploadsPath))
             {
@@ -391,7 +365,14 @@ namespace distels
                 RequestPath = "/uploads"
             });
 
-            // 8️⃣ ENDPOINTS (siempre al final)
+            app.UseRouting();
+            app.UseAuthentication();
+            app.UseAuthorization();
+
+            // ============================================
+            // ✅ MAPEAR ENDPOINTS
+            // ============================================
+
             app.MapControllers();
 
             // Health check endpoint
