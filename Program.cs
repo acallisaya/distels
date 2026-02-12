@@ -325,33 +325,43 @@ namespace distels
             Console.WriteLine("========================================");
             Console.WriteLine("🏗️  Construyendo aplicación...");
             Console.WriteLine("========================================");
-
             // ============================================
-            // ✅ CONFIGURAR MIDDLEWARE - CORREGIDO
+            // ✅ CONFIGURAR MIDDLEWARE - ORDEN CORREGIDO (CRÍTICO PARA CORS)
             // ============================================
 
+            // 1️⃣ MANEJO DE ERRORES (siempre primero)
             if (isDevelopment)
             {
                 Console.WriteLine("🛠️  Configurando para DESARROLLO...");
                 app.UseDeveloperExceptionPage();
-                app.UseCors("PermitirFrontend");
             }
             else
             {
                 Console.WriteLine("🚀  Configurando para PRODUCCIÓN...");
                 app.UseExceptionHandler("/error");
-                app.UseCors("PermitirFrontend");
             }
 
-            // Middleware comunes
+            // 2️⃣ REDIRECCIÓN HTTPS (solo si no es Render)
             if (!isDevelopment && !isRender)
             {
                 app.UseHttpsRedirection();
             }
 
+            // 3️⃣ ARCHIVOS ESTÁTICOS (siempre)
             app.UseStaticFiles();
 
-            // Servir archivos uploads
+            // 4️⃣ 🔓 CORS - ¡UBICACIÓN CRÍTICA! DEBE IR ANTES DE UseRouting()
+            Console.WriteLine("🔓  Configurando CORS con política PermitirFrontend...");
+            app.UseCors("PermitirFrontend");
+
+            // 5️⃣ ROUTING (a partir de aquí va el pipeline de endpoints)
+            app.UseRouting();
+
+            // 6️⃣ AUTENTICACIÓN Y AUTORIZACIÓN
+            app.UseAuthentication();
+            app.UseAuthorization();
+
+            // 7️⃣ SERVIR ARCHIVOS DE UPLOADS (middleware adicional)
             var uploadsPath = Path.Combine(app.Environment.ContentRootPath, "wwwroot", "uploads");
             if (!Directory.Exists(uploadsPath))
             {
@@ -365,14 +375,7 @@ namespace distels
                 RequestPath = "/uploads"
             });
 
-            app.UseRouting();
-            app.UseAuthentication();
-            app.UseAuthorization();
-
-            // ============================================
-            // ✅ MAPEAR ENDPOINTS
-            // ============================================
-
+            // 8️⃣ ENDPOINTS (siempre al final)
             app.MapControllers();
 
             // Health check endpoint
@@ -414,8 +417,8 @@ namespace distels
                 try
                 {
                     var sql = @"INSERT INTO public.usuarios (cod_usuario, tipo_rol, password, estado, fecha_registro)
-                    VALUES ('admin', 'ADMIN', '1234', true, NOW())
-                    ON CONFLICT (cod_usuario) DO NOTHING;";
+                VALUES ('admin', 'ADMIN', '1234', true, NOW())
+                ON CONFLICT (cod_usuario) DO NOTHING;";
 
                     await db.Database.ExecuteSqlRawAsync(sql);
 
