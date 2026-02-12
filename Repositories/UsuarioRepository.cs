@@ -1,23 +1,41 @@
-﻿using distels.Models;
-using Microsoft.Extensions.Hosting.Internal;
+﻿
+using distels.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace distels.Repositories
 {
     public class UsuarioRepository : IUsuarioRepository
     {
         private readonly ApplicationDbContext _context;
+
         public UsuarioRepository(ApplicationDbContext context)
         {
-            this._context = context;
+            _context = context;
         }
-        public Usuario GetUsuarioByCodigo(string codUsuario, string password)
+
+        public Usuario GetUsuarioByCodigo(string codUsuario, string? password)
         {
-            return _context.Usuarios.FirstOrDefault(p => p.cod_usuario == codUsuario && p.password == password);
+            if (string.IsNullOrEmpty(password))
+            {
+                return _context.Usuarios
+                    .FirstOrDefault(u => u.cod_usuario == codUsuario);
+            }
+
+            return _context.Usuarios
+                .FirstOrDefault(u => u.cod_usuario == codUsuario &&
+                                    u.password == password);
         }
+
+        // 🔴 ¡ESTE MÉTODO ESTÁ FALTANDO!
+        public void AddUsuario(Usuario usuario)
+        {
+            _context.Usuarios.Add(usuario);
+            _context.SaveChanges();
+        }
+
         public bool Guardar()
         {
-            // La DDBB retorna 1 si se guardó correctamente, 0 si no se guardó nada, -1 si hubo un error
-            return _context.SaveChanges() >= 0; // Si se guardó al menos un registro, se retorna true
+            return _context.SaveChanges() > 0;
         }
     }
 }
