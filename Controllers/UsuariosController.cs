@@ -82,5 +82,60 @@ namespace distels.Controllers
 
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
+        [HttpPost("Registrar")]
+        public IActionResult RegistrarUsuario([FromBody] UsuarioRegistroDTO request)
+        {
+            try
+            {
+                // Validar que no exista el usuario
+                var usuarioExistente = _repo.GetUsuarioByCodigo(request.cod_usuario, null);
+                if (usuarioExistente != null)
+                    return BadRequest(new
+                    {
+                        success = false,
+                        message = "El nombre de usuario ya existe"
+                    });
+
+                // Crear nuevo usuario
+                var nuevoUsuario = new Usuario
+                {
+                    cod_usuario = request.cod_usuario,
+                    tipo_rol = request.tipo_rol ?? "VENDEDOR", // Por defecto VENDEDOR
+                    password = request.password, // En producción deberías encriptarla
+                    estado = true,
+                    fecha_registro = DateTime.Now
+                };
+
+                _repo.AddUsuario(nuevoUsuario);
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "✅ Usuario creado exitosamente",
+                    usuario = new
+                    {
+                        nuevoUsuario.cod_usuario,
+                        nuevoUsuario.tipo_rol,
+                        nuevoUsuario.estado
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Error al crear usuario",
+                    error = ex.Message
+                });
+            }
+        }
+        // DTO para registrar usuario
+        public class UsuarioRegistroDTO
+        {
+            public string cod_usuario { get; set; } = null!;
+            public string? tipo_rol { get; set; }
+            public string password { get; set; } = null!;
+        }
     }
 }

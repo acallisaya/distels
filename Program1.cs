@@ -1,33 +1,38 @@
-﻿// Program.Render.cs - Versión ESPECÍFICA para Render
+﻿using AutoMapper;
+using distels.Services;
+using distels.Repositories;
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using distels.Profiles;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.FileProviders;
 using System.Net;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
-using AutoMapper;
-using Microsoft.EntityFrameworkCore;
-using distels.Repositories;
-using distels.Services;
+using System.IO;
 
 namespace distels
 {
-    public class ProgramRender
+    public class Program
     {
         public static void Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
-
-            // 🔥 CRUCIAL PARA RENDER: Puerto dinámico
-            var port = Environment.GetEnvironmentVariable("PORT") ?? "5127";
-            builder.WebHost.UseUrls($"http://*:{port}");
-
-            // CONFIGURACIÓN GLOBAL para TLS
+            // ⭐⭐ SOLUCIÓN DEFINITIVA - Agrega estas 2 líneas ⭐⭐
+            AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+            AppContext.SetSwitch("Npgsql.DisableDateTimeInfinityConversions", true);
+            // ⭐⭐ FIN DE LA SOLUCIÓN ⭐⭐
+            // CONFIGURACIÓN GLOBAL para TLS (IMPORTANTE)
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls13;
             ServicePointManager.ServerCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => true;
+            // -------------------  Configurar Kestrel para escuchar en todas las IPs -------------------
+            builder.WebHost.ConfigureKestrel(options =>
+            {
+                options.ListenAnyIP(5127); // HTTP
+                options.ListenAnyIP(7183, listenOptions => listenOptions.UseHttps()); // HTTPS
+            });
 
-            // Configuración de JSON
+            // ********** Configuración de JSON para evitar ciclos **********
             builder.Services.AddControllers()
                 .AddJsonOptions(options =>
                 {
@@ -35,12 +40,13 @@ namespace distels
                     options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
                 });
 
-            // Logging simplificado
+            // ********** AGREGAR ESTO: Configuración de Logging para ver errores **********
             builder.Logging.ClearProviders();
             builder.Logging.AddConsole();
-            builder.Logging.SetMinimumLevel(LogLevel.Information);
+            builder.Logging.AddDebug();
+            builder.Logging.SetMinimumLevel(LogLevel.Debug);
 
-            // AutoMapper
+            // ------------------- AutoMapper -------------------
             builder.Services.AddSingleton<IMapper>(sp =>
             {
                 var config = new AutoMapper.MapperConfiguration(cfg => {
@@ -49,88 +55,75 @@ namespace distels
                 return config.CreateMapper();
             });
 
-            // DbContext - Con variable de entorno
-            var connectionString = Environment.GetEnvironmentVariable("DATABASE_URL") ??
-                                  builder.Configuration.GetConnectionString("DefaultConnection");
-
-            Console.WriteLine($"Database connection string configured: {!string.IsNullOrEmpty(connectionString)}");
-
+            // ------------------- DbContext -------------------
+            // A esto (Pooling desactivado):
             builder.Services.AddDbContext<ApplicationDbContext>(options =>
-                options.UseNpgsql(connectionString));
+            {
+                options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
+                options.EnableSensitiveDataLogging();
+            }, ServiceLifetime.Transient);  // <-- IMPORTANTE: Transient en lugar de Scoped
 
-            // Configuración Email
+            // ------------------- Configuración Email (AGREGAR ESTO) -------------------
+            // 1. Configurar la clase EmailConfig desde appsettings.json
             builder.Services.Configure<EmailConfig>(
                 builder.Configuration.GetSection("EmailConfig"));
+
+            // 2. Registrar el servicio de email
             builder.Services.AddScoped<IEmailService, EmailService>();
 
-            // Repositorios (mantén los tuyos)
+            // 3. Configurar para usar MailKit en lugar de SmtpClient obsoleto
+            //    (Esto se hace automáticamente al usar MailKit en EmailService)
+
+            // ------------------- Repositorios -------------------
             builder.Services.AddScoped<IParametroRepository, ParametroRepository>();
             builder.Services.AddScoped<IUsuarioRepository, UsuarioRepository>();
 
-            // CORS para Render
+            // ------------------- Controladores -------------------
+            builder.Services.AddControllers();
+            builder.Services.AddScoped<IPdfService, PdfService>();
+            // ------------------- CORS -------------------
             builder.Services.AddCors(options =>
             {
-                options.AddPolicy("RenderPolicy", policy =>
+                options.AddPolicy("AllowReact", policy =>
                 {
                     policy
-                        .AllowAnyOrigin()  // Temporal para pruebas
+                        .WithOrigins("http://localhost:5173", "http://localhost:3000")
                         .AllowAnyHeader()
-                        .AllowAnyMethod();
+                        .AllowAnyMethod()
+                        .AllowCredentials();
                 });
             });
 
-            // JWT Authentication
+            // ------------------- JWT Authentication -------------------
             var jwtSettings = builder.Configuration.GetSection("Jwt");
-            var key = Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? "super-secret-key-min-16-chars");
+            var key = Encoding.UTF8.GetBytes(jwtSettings["Key"]);
 
-            builder.Services.AddAuthentication(options =>
-            {
-                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-            })
-            .AddJwtBearer(options =>
-            {
-                options.TokenValidationParameters = new TokenValidationParameters
-                {
-                    ValidateIssuer = true,
-                    ValidateAudience = true,
-                    ValidateLifetime = true,
-                    ValidateIssuerSigningKey = true,
-                    ValidIssuer = jwtSettings["Issuer"] ?? "tniservice",
-                    ValidAudience = jwtSettings["Audience"] ?? "tniservice-users",
-                    IssuerSigningKey = new SymmetricSecurityKey(key)
-                };
-            });
+
 
             var app = builder.Build();
 
-            // Middleware
-            app.UseStaticFiles();
+            // ------------------- Middleware -------------------
+            // app.UseHttpsRedirection(); // Comentar en desarrollo
+            app.UseStaticFiles(); // Para wwwroot
             app.UseStaticFiles(new StaticFileOptions
             {
                 FileProvider = new PhysicalFileProvider(
                     Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads")),
                 RequestPath = "/uploads"
             });
+            app.UseCors("AllowReact");
 
-            app.UseCors("RenderPolicy");
-            app.UseAuthentication();
+            app.UseAuthentication(); // Asegúrate de que esta línea está antes de UseAuthorization
             app.UseAuthorization();
 
             app.MapControllers();
 
-            // Endpoints específicos para Render
-            app.MapGet("/", () =>
-                "TNI Service API - Running on Render\n" +
-                $"Environment: {app.Environment.EnvironmentName}\n" +
-                $"Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
-
-            app.MapGet("/health", () =>
+            // ********** AGREGAR ESTO: Endpoint para verificar estado del servicio **********
+            app.MapGet("/api/health", () =>
                 new {
-                    status = "healthy",
-                    service = "tniservice",
-                    timestamp = DateTime.UtcNow,
-                    port = port
+                    status = "running",
+                    timestamp = DateTime.Now,
+                    emailService = "configured"
                 });
 
             app.Run();
