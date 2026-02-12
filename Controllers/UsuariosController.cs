@@ -12,8 +12,7 @@ using System.Text;
 using distels.DTO;
 using distels.Models;
 using distels.Repositories;
-using distels.Models;
-using distels.Repositories;
+
 
 namespace distels.Controllers
 {
