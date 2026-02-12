@@ -52,36 +52,28 @@ namespace distels
             Console.WriteLine("========================================");
 
             // ============================================
-            // ✅ CONFIGURAR SERVIDOR WEB (VERSIÓN CORREGIDA)
+            // ✅ CONFIGURAR SERVIDOR WEB
             // ============================================
 
-            // SIEMPRE usar la variable PORT en Render
             var port = Environment.GetEnvironmentVariable("PORT");
             var isRenderEnv = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("RENDER"));
 
             if (isRenderEnv && !string.IsNullOrEmpty(port))
             {
-                // ✅ CORRECCIÓN: Render asigna puerto dinámico
                 Console.WriteLine($"🎯  RENDER DETECTADO - Usando puerto: {port}");
-
-                // Configurar Kestrel para el puerto de Render
                 builder.WebHost.ConfigureKestrel(serverOptions =>
                 {
                     serverOptions.Listen(IPAddress.Any, int.Parse(port));
                 });
-
-                // También configurar URLs
                 builder.WebHost.UseUrls($"http://*:{port}");
             }
             else if (isDevelopment)
             {
-                // ✅ Desarrollo local
                 Console.WriteLine("🖥️  Desarrollo local - Puerto: 5127 (HTTP)");
                 builder.WebHost.UseUrls("http://localhost:5127");
             }
             else
             {
-                // ✅ Producción (no Render)
                 Console.WriteLine("🌐  Producción - Puerto por defecto: 8080");
                 builder.WebHost.UseUrls("http://*:8080");
             }
@@ -118,34 +110,41 @@ namespace distels
             }
 
             // ============================================
-            // ✅ CONFIGURACIÓN DE CORS
+            // ✅ CONFIGURACIÓN DE CORS - DEFINITIVA
             // ============================================
+
             builder.Services.AddCors(options =>
             {
-                // 🟢 POLÍTICA ÚNICA - FUNCIONA EN TODOS LADOS
+                // 🟢 POLÍTICA PRINCIPAL - PARA FRONTEND ESPECÍFICO
                 options.AddPolicy("PermitirFrontend", policy =>
                 {
                     policy.SetIsOriginAllowed(origin =>
                         origin == "http://localhost:5173" ||
                         origin == "http://localhost:3000" ||
                         origin == "https://distels-frontend.onrender.com" ||
-                        origin.StartsWith("http://localhost:"))  // Permite cualquier puerto local
+                        origin.StartsWith("http://localhost:"))
                           .AllowAnyMethod()
                           .AllowAnyHeader()
                           .AllowCredentials();
                 });
+
+                // 🟢 POLÍTICA DE RESPALDO - PERMITE TODO
+                options.AddPolicy("PermitirTodo", policy =>
+                {
+                    policy.AllowAnyOrigin()
+                          .AllowAnyMethod()
+                          .AllowAnyHeader();
+                });
             });
 
             // ============================================
-            // ✅ CONFIGURACIÓN DE BASE DE DATOS - VERSIÓN DEFINITIVA
+            // ✅ CONFIGURACIÓN DE BASE DE DATOS
             // ============================================
 
             builder.Services.AddDbContext<ApplicationDbContext>((serviceProvider, options) =>
             {
                 Console.WriteLine("🔧  Configurando conexión a PostgreSQL...");
-
                 string connectionString = GetConnectionString();
-
                 Console.WriteLine($"✅  Connection string listo");
 
                 options.UseNpgsql(connectionString, npgsqlOptions =>
@@ -162,16 +161,14 @@ namespace distels
 
             }, ServiceLifetime.Transient);
 
-            // Función auxiliar para obtener connection string SIN usar Uri.Parse
+            // Función auxiliar para obtener connection string
             string GetConnectionString()
             {
-                // 1. Primero intentar DATABASE_URL
                 var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
 
                 if (!string.IsNullOrEmpty(databaseUrl))
                 {
                     Console.WriteLine("🔍  Parseando DATABASE_URL manualmente...");
-
                     try
                     {
                         return ParseDatabaseUrlManually(databaseUrl);
@@ -183,16 +180,13 @@ namespace distels
                     }
                 }
 
-                // 2. Si no hay DATABASE_URL o falló, usar variables individuales
                 return GetConnectionStringFromEnvVars();
             }
 
             string ParseDatabaseUrlManually(string url)
             {
-                // Parsear MANUALMENTE sin usar Uri class
                 Console.WriteLine($"📦  URL original: {url}");
 
-                // Normalizar a postgres://
                 if (url.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
                 {
                     url = "postgres://" + url.Substring("postgresql://".Length);
@@ -202,55 +196,35 @@ namespace distels
                     throw new FormatException("URL debe empezar con postgres:// o postgresql://");
                 }
 
-                // Remover postgres://
                 url = url.Substring("postgres://".Length);
-
-                // Separar usuario:contraseña@host:puerto/basedatos
                 var atIndex = url.IndexOf('@');
                 if (atIndex == -1) throw new FormatException("No hay @ en la URL");
 
                 var credentials = url.Substring(0, atIndex);
                 var rest = url.Substring(atIndex + 1);
-
-                // Parsear credenciales
                 var colonIndex = credentials.IndexOf(':');
                 if (colonIndex == -1) throw new FormatException("No hay : en las credenciales");
 
                 var username = credentials.Substring(0, colonIndex);
                 var password = credentials.Substring(colonIndex + 1);
-
-                // Parsear host:puerto/basedatos
                 var slashIndex = rest.IndexOf('/');
                 if (slashIndex == -1) throw new FormatException("No hay / después del host");
 
                 var hostPort = rest.Substring(0, slashIndex);
                 var database = rest.Substring(slashIndex + 1);
-
-                // Parsear host y puerto
                 var host = hostPort;
-                var port = 5432; // Puerto por defecto PostgreSQL
+                var port = 5432;
 
                 var colonPortIndex = hostPort.IndexOf(':');
                 if (colonPortIndex != -1)
                 {
                     host = hostPort.Substring(0, colonPortIndex);
                     var portStr = hostPort.Substring(colonPortIndex + 1);
-
                     if (int.TryParse(portStr, out var parsedPort))
                     {
                         port = parsedPort;
                     }
-                    else
-                    {
-                        Console.WriteLine($"⚠️  Puerto '{portStr}' inválido, usando 5432");
-                    }
                 }
-
-                Console.WriteLine($"✅  Parseado exitoso:");
-                Console.WriteLine($"   👤 Usuario: {username}");
-                Console.WriteLine($"   🌐 Host: {host}");
-                Console.WriteLine($"   🚪 Puerto: {port}");
-                Console.WriteLine($"   🗄️  Base de datos: {database}");
 
                 return new NpgsqlConnectionStringBuilder
                 {
@@ -289,12 +263,6 @@ namespace distels
                     port = parsedPort;
                 }
 
-                Console.WriteLine($"✅  Variables encontradas:");
-                Console.WriteLine($"   🌐 Host: {host}");
-                Console.WriteLine($"   🚪 Puerto: {port}");
-                Console.WriteLine($"   🗄️  Database: {database}");
-                Console.WriteLine($"   👤 Usuario: {username}");
-
                 return new NpgsqlConnectionStringBuilder
                 {
                     Host = host,
@@ -308,11 +276,11 @@ namespace distels
                     MaxPoolSize = 20
                 }.ToString();
             }
+
             // ============================================
-            // ✅ CONFIGURACIÓN DE AUTENTICACIÓN (SIMPLIFICADA)
+            // ✅ CONFIGURACIÓN DE AUTENTICACIÓN
             // ============================================
 
-            // Configuración básica de autenticación
             builder.Services.AddAuthentication();
 
             // ============================================
@@ -359,20 +327,20 @@ namespace distels
             Console.WriteLine("========================================");
 
             // ============================================
-            // ✅ CONFIGURAR MIDDLEWARE
+            // ✅ CONFIGURAR MIDDLEWARE - CORREGIDO
             // ============================================
 
             if (isDevelopment)
             {
                 Console.WriteLine("🛠️  Configurando para DESARROLLO...");
                 app.UseDeveloperExceptionPage();
-                app.UseCors("DevelopmentPolicy");
+                app.UseCors("PermitirFrontend");
             }
             else
             {
                 Console.WriteLine("🚀  Configurando para PRODUCCIÓN...");
                 app.UseExceptionHandler("/error");
-                app.UseCors("ProductionPolicy");
+                app.UseCors("PermitirFrontend");
             }
 
             // Middleware comunes
@@ -396,7 +364,7 @@ namespace distels
                 FileProvider = new PhysicalFileProvider(uploadsPath),
                 RequestPath = "/uploads"
             });
-            app.UseCors("PermitirTodo");
+
             app.UseRouting();
             app.UseAuthentication();
             app.UseAuthorization();
@@ -440,116 +408,11 @@ namespace distels
                 });
             });
 
-            // ============================================
-            // ✅ VERIFICAR BASE DE DATOS
-            // ============================================
-
-            if (isProduction || isRender)
-            {
-                Console.WriteLine("🔄  Verificando conexión a base de datos...");
-
-                try
-                {
-                    using var scope = app.Services.CreateScope();
-                    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-
-                    // Intentar conexión simple
-                    var canConnect = db.Database.CanConnect();
-
-                    if (canConnect)
-                    {
-                        Console.WriteLine("✅  Conexión a PostgreSQL exitosa");
-
-                        // Intentar aplicar migraciones si existen
-                        try
-                        {
-                            db.Database.Migrate();
-                            Console.WriteLine("✅  Base de datos verificada");
-                        }
-                        catch (Exception migEx)
-                        {
-                            Console.WriteLine($"ℹ️  Sin migraciones pendientes: {migEx.Message}");
-                        }
-                    }
-                    else
-                    {
-                        Console.WriteLine("⚠️  No se pudo conectar a la base de datos");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"❌  Error en conexión a base de datos: {ex.Message}");
-                    Console.WriteLine($"🔍  Detalle: {ex.InnerException?.Message}");
-                }
-            }
-
-            // ============================================
-            // ✅ INICIAR APLICACIÓN
-            // ============================================
-
-            Console.WriteLine("========================================");
-            Console.WriteLine("🎉  APLICACIÓN LISTA PARA INICIAR");
-            Console.WriteLine($"📡  Entorno: {app.Environment.EnvironmentName}");
-            Console.WriteLine($"⏰  Hora de inicio: {DateTime.Now}");
-            Console.WriteLine($"🌐  URL: {(isRender ? $"Puerto {Environment.GetEnvironmentVariable("PORT")}" : "http://localhost:5127")}");
-            Console.WriteLine("========================================");
-            // ============================================
-            // 🚀 CREAR TABLAS AUTOMÁTICAMENTE - PEGA ESTO AHORA
-            // ============================================
-            // ============================================
-            // 🔥 SOLUCIÓN DEFINITIVA - CREACIÓN FORZADA DE TABLAS
-            // ============================================
-            using (var scope = app.Services.CreateScope())
-            {
-                var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-
-                try
-                {
-                    logger.LogWarning("🚀 VERIFICANDO BASE DE DATOS EN RENDER...");
-
-                    // 1. PRIMERO: Verificar conexión
-                    var canConnect = db.Database.CanConnect();
-                    logger.LogInformation($"📡 Conexión a DB: {(canConnect ? "EXITOSA" : "FALLIDA")}");
-
-                    if (canConnect)
-                    {
-                        // 2. SEGUNDO: ELIMINAR Y RECREAR TODO (FUERZA BRUTA)
-                        logger.LogWarning("🔥 ELIMINANDO base de datos existente...");
-                        db.Database.EnsureDeleted();
-
-                        logger.LogWarning("🔥 CREANDO base de datos y tablas desde CERO...");
-                        db.Database.EnsureCreated();
-
-                        // 3. VERIFICAR QUE LAS TABLAS EXISTEN
-                        try
-                        {
-                            var testQuery = db.Tarjetas.Any();
-                            logger.LogInformation("✅ VERIFICACIÓN: Tabla tarjetas responde correctamente");
-                        }
-                        catch (Exception ex)
-                        {
-                            logger.LogError($"❌ VERIFICACIÓN FALLÓ: {ex.Message}");
-                            throw;
-                        }
-
-                        // 4. DATOS SEMILLA
-                        SeedInitialData(db, logger);
-
-                        logger.LogInformation("🎉 ¡BASE DE DATOS LISTA!");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError(ex, "❌ ERROR FATAL EN BASE DE DATOS: {Message}", ex.Message);
-                }
-            }
             // 🆘 ENDPOINT DE EMERGENCIA - CREAR USUARIO ADMIN
             app.MapGet("/api/emergencia/crear-admin", async (ApplicationDbContext db) =>
             {
                 try
                 {
-                    // Usar SQL directo para insertar en tu tabla usuarios
                     var sql = @"INSERT INTO public.usuarios (cod_usuario, tipo_rol, password, estado, fecha_registro)
                     VALUES ('admin', 'ADMIN', '1234', true, NOW())
                     ON CONFLICT (cod_usuario) DO NOTHING;";
@@ -573,8 +436,64 @@ namespace distels
                     });
                 }
             });
+
+            // ============================================
+            // ✅ VERIFICAR BASE DE DATOS
+            // ============================================
+
+            if (isProduction || isRender)
+            {
+                Console.WriteLine("🔄  Verificando conexión a base de datos...");
+
+                try
+                {
+                    using var scope = app.Services.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                    var canConnect = db.Database.CanConnect();
+
+                    if (canConnect)
+                    {
+                        Console.WriteLine("✅  Conexión a PostgreSQL exitosa");
+
+                        try
+                        {
+                            // Crear base de datos y tablas si no existen
+                            db.Database.EnsureCreated();
+                            Console.WriteLine("✅  Base de datos verificada");
+
+                            // Datos semilla
+                            SeedInitialData(db, scope.ServiceProvider.GetRequiredService<ILogger<Program>>());
+                        }
+                        catch (Exception migEx)
+                        {
+                            Console.WriteLine($"ℹ️  {migEx.Message}");
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("⚠️  No se pudo conectar a la base de datos");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"❌  Error en conexión a base de datos: {ex.Message}");
+                }
+            }
+
+            // ============================================
+            // ✅ INICIAR APLICACIÓN
+            // ============================================
+
+            Console.WriteLine("========================================");
+            Console.WriteLine("🎉  APLICACIÓN LISTA PARA INICIAR");
+            Console.WriteLine($"📡  Entorno: {app.Environment.EnvironmentName}");
+            Console.WriteLine($"⏰  Hora de inicio: {DateTime.Now}");
+            Console.WriteLine($"🌐  URL: {(isRender ? $"Puerto {Environment.GetEnvironmentVariable("PORT")}" : "http://localhost:5127")}");
+            Console.WriteLine("========================================");
+
             app.Run();
         }
+
         static void SeedInitialData(ApplicationDbContext db, ILogger logger)
         {
             try
