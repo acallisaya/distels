@@ -325,6 +325,7 @@ namespace distels
             Console.WriteLine("========================================");
             Console.WriteLine("🏗️  Construyendo aplicación...");
             Console.WriteLine("========================================");
+
             // ============================================
             // ✅ CONFIGURAR MIDDLEWARE - ORDEN CORREGIDO (CRÍTICO PARA CORS)
             // ============================================
@@ -353,6 +354,21 @@ namespace distels
             // 4️⃣ 🔓 CORS - ¡UBICACIÓN CRÍTICA! DEBE IR ANTES DE UseRouting()
             Console.WriteLine("🔓  Configurando CORS con política PermitirFrontend...");
             app.UseCors("PermitirFrontend");
+
+            // 🔥🔥🔥 SOLUCIÓN DEFINITIVA PARA PREFLIGHT OPTIONS (AGREGADO)
+            app.Use((context, next) =>
+            {
+                if (context.Request.Method == "OPTIONS")
+                {
+                    context.Response.StatusCode = 200;
+                    context.Response.Headers.Append("Access-Control-Allow-Origin", "https://distelsfrontend.onrender.com");
+                    context.Response.Headers.Append("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+                    context.Response.Headers.Append("Access-Control-Allow-Headers", "Content-Type, Authorization");
+                    context.Response.Headers.Append("Access-Control-Allow-Credentials", "true");
+                    return context.Response.CompleteAsync();
+                }
+                return next();
+            });
 
             // 5️⃣ ROUTING (a partir de aquí va el pipeline de endpoints)
             app.UseRouting();
@@ -417,8 +433,8 @@ namespace distels
                 try
                 {
                     var sql = @"INSERT INTO public.usuarios (cod_usuario, tipo_rol, password, estado, fecha_registro)
-                VALUES ('admin', 'ADMIN', '1234', true, NOW())
-                ON CONFLICT (cod_usuario) DO NOTHING;";
+                    VALUES ('admin', 'ADMIN', '1234', true, NOW())
+                    ON CONFLICT (cod_usuario) DO NOTHING;";
 
                     await db.Database.ExecuteSqlRawAsync(sql);
 
