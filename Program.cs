@@ -557,7 +557,35 @@ namespace distels
                     logger.LogError(ex, "❌ ERROR FATAL EN BASE DE DATOS: {Message}", ex.Message);
                 }
             }
+            // 🆘 ENDPOINT DE EMERGENCIA - CREAR USUARIO ADMIN
+            app.MapGet("/api/emergencia/crear-admin", async (ApplicationDbContext db) =>
+            {
+                try
+                {
+                    // Usar SQL directo para insertar en tu tabla usuarios
+                    var sql = @"INSERT INTO public.usuarios (cod_usuario, tipo_rol, password, estado, fecha_registro)
+                    VALUES ('admin', 'ADMIN', '1234', true, NOW())
+                    ON CONFLICT (cod_usuario) DO NOTHING;";
 
+                    await db.Database.ExecuteSqlRawAsync(sql);
+
+                    return Results.Ok(new
+                    {
+                        success = true,
+                        message = "✅ Usuario ADMIN creado exitosamente",
+                        usuario = "admin",
+                        password = "1234"
+                    });
+                }
+                catch (Exception ex)
+                {
+                    return Results.Ok(new
+                    {
+                        success = false,
+                        error = ex.Message
+                    });
+                }
+            });
             app.Run();
         }
         static void SeedInitialData(ApplicationDbContext db, ILogger logger)
